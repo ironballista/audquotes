@@ -1,0 +1,6 @@
+# Exclude all tweet config files
+*.toml
+
+list
+quotes
+quotes.bkp
