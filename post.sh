@@ -1,5 +1,8 @@
 #!/bin/bash
 
+parent_path=$( cd "$(dirname "${BASH_SOURCE[0]}")" ; pwd -P )
+cd "$parent_path"
+
 while [[ $# -gt 0 ]]; do
     key="$1"
 
