@@ -4,6 +4,15 @@ while [[ $# -gt 0 ]]; do
     key="$1"
 
     case $key in
+    -h|--help)
+        echo -e "$0 - usage:" \
+             "[-h] [-c CREDENTIALS] [-f POSTLIST] [-t]\n" \
+             "-h, --help             show this message\n" \
+             "-t, --tweet            enables tweeting mode\n" \
+             "-f, --filename         file containing post list\n" \
+             "-c, --credentials      specify twitter credentials file"
+        exit
+        ;;
     -t|--tweet)
         # Enables tweeting of the text files
         # as opposed to simply displaying them
@@ -27,21 +36,21 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z ${CREDENTIALS} ]; then
-    CREDENTIALS=acc.toml
+    CREDENTIALS="./config/acc.toml"
 fi
 
 if [ -z ${FNAME} ]; then
-    FNAME=quotes
+    FNAME="./config/quotes"
 fi
 
-stest -qvs "${FNAME}" && find . -type f -iname "*.txt" | shuf >"${FNAME}"
+! test -s "${FNAME}" && find "./src" -type f -iname "*.txt" | shuf >"${FNAME}"
 
-QUOTE=$(head -1 "${FNAME}")
+QUOTE_FNAME=$(head -1 "${FNAME}")
 tail -n +2 "${FNAME}" > "${FNAME}.tmp" && mv "${FNAME}.tmp" "${FNAME}"
 
 if [ ${TWEETMODE} ]; then
-    tweet -c "${CREDENTIALS}" send "$(cat ${QUOTE})"
+    ./util/tweet.py -c "${CREDENTIALS}" send -f "${QUOTE_FNAME}"
 else
-    cat ${QUOTE}
+    cat ${QUOTE_FNAME}
 fi
 
