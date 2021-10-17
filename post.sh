@@ -46,13 +46,23 @@ if [ -z ${FNAME} ]; then
     FNAME="./config/quotes"
 fi
 
-! test -s "${FNAME}" && find "./src" -type f -iname "*.txt" | shuf >"${FNAME}"
+function shift_list() {
+    ! test -s "${FNAME}" && find "./src" -type f -iname "*.txt" | shuf >"${FNAME}"
 
-QUOTE_FNAME=$(head -1 "${FNAME}")
-tail -n +2 "${FNAME}" > "${FNAME}.tmp" && mv "${FNAME}.tmp" "${FNAME}"
+    QUOTE_FNAME=$(head -1 "${FNAME}")
+    tail -n +2 "${FNAME}" > "${FNAME}.tmp" && mv "${FNAME}.tmp" "${FNAME}"
+}
+
+function post_tweet() {
+    ./util/tweet.py -c "${CREDENTIALS}" send -f "${QUOTE_FNAME}"
+    return $?
+}
+
+shift_list
 
 if [ ${TWEETMODE} ]; then
-    ./util/tweet.py -c "${CREDENTIALS}" send -f "${QUOTE_FNAME}"
+    # Keep going until a tweet was posted
+    while post_tweet; [ $? -ne 0 ]; do shift_list; done
 else
     cat ${QUOTE_FNAME}
 fi

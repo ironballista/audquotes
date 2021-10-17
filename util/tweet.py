@@ -72,11 +72,14 @@ else:
         print("[ERROR]: Could not read from file.")
         logger.error(f"[{get_time_fmt()}] Could not read from file: {tweet_filename}; " +
                 os.strerror(e.errno))
+        sys.exit(1)
     else:
         if len(tweet_text) <= 280:
             api.update_status(tweet_text)
+            sys.exit(0)
         else:
             print("[ERROR]: Tweet text too long!")
             logger.error(f"[{get_time_fmt()}] Tweet contents too long; argument length: " +
                     f"{len(tweet_text)}; file location: {args.tweet_filename}")
+            sys.exit(1)
 
