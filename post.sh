@@ -12,6 +12,7 @@ while [[ $# -gt 0 ]]; do
              "[-h] [-c CREDENTIALS] [-f POSTLIST] [-t]\n" \
              "-h, --help             show this message\n" \
              "-t, --tweet            enables tweeting mode\n" \
+             "-b, --bluesky          enables bluesky mode\n"
              "-f, --filename         file containing post list\n" \
              "-c, --credentials      specify twitter credentials file"
         exit
@@ -21,6 +22,11 @@ while [[ $# -gt 0 ]]; do
         # as opposed to simply displaying them
         TWEETMODE=ON
         shift # past argument
+        ;;
+    -b|--bluesky)
+        # Enables posting of text files via Bluesky
+        BLUESKY=ON
+        shift
         ;;
     -f|--filename)
         # Controls which file contains the list
@@ -58,12 +64,19 @@ function post_tweet() {
     return $?
 }
 
+function post_bluesky() {
+    python3 ./util/bluesky.py -f "${QUOTE_FNAME}"
+    return $?
+}
+
 shift_list
 
 if [ ${TWEETMODE} ]; then
     # Keep going until a tweet was posted
     while post_tweet; [ $? -ne 0 ]; do shift_list; done
+elif [ ${BLUESKY} ]; then
+    # Keep going until a post is successful
+    while post_bluesky; [ $? -ne 0 ]; do shift_list; done
 else
     cat ${QUOTE_FNAME}
 fi
-
