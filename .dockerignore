@@ -1,0 +1,6 @@
+# flyctl launch added from .gitignore
+# Exclude all tweet config files
+**/config/**
+**/venv
+**/.zed
+fly.toml

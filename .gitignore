@@ -2,3 +2,5 @@
 config/**
 venv
 .zed
+.github/
+fly.toml
