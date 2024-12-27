@@ -6,37 +6,37 @@ import random
 import os
 
 from glob import iglob
-from atproto import Client
 
-quotes = tuple()
-indices = []
-random.seed(time.monotonic())
+import atproto
 
-def auth_client():
+def auth_client() -> atproto.Client:
     handle, password, = os.getenv('BLUESKY_USERNAME'), os.getenv('BLUESKY_PASSWORD')
-    client = Client()
-    profile = client.login(handle, password)
+    client: atproto.Client = atproto.Client()
+    profile: atproto.models.AppBskyActorDefs.ProfileViewDetailed = client.login(handle, password)
     return client
 
-def sample_quote(client):
+def sample_quote(client: atproto.Client, simulation_mode: bool = False) -> None:
     global quotes, indices
     path = quotes[indices.pop()]
 
     with open(path, 'r') as f:
-        post_text = f.read().strip()
+        post_text: str = f.read().strip()
 
-    client.send_post(post_text)
+    if not simulation_mode:
+        client.send_post(post_text)
+    else:
+        print(post_text)
 
-def main():
+def main() -> None:
     global quotes, indices
 
-    client = auth_client()
+    client: atproto.Client = auth_client()
     quotes = tuple(iglob('src/**/*.txt', recursive=True))
     indices = []
 
     schedule.every().hour.at(':00').do(sample_quote, client)
     schedule.every().hour.at(':30').do(sample_quote, client)
-    # schedule.every(10).seconds.do(sample_quote, client)
+    # schedule.every(10).seconds.do(sample_quote, client, simulation_mode=True)
 
     while True:
         if len(indices) == 0:
@@ -47,4 +47,5 @@ def main():
         time.sleep(1)
 
 if __name__ == '__main__':
+    random.seed(time.monotonic())
     main()
