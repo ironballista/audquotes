@@ -14,5 +14,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 8080
 
 # Run app.py when the container launches
-CMD ["python3", "sched.py"]
+CMD ["python3", "schedule_script.py"]
 
