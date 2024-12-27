@@ -1,6 +1,7 @@
 # Exclude all tweet config files
 config/**
-venv
+venv/
+.venv/
 .zed
 .github/
 fly.toml

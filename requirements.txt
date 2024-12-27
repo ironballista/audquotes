@@ -1,3 +1,0 @@
-atproto==0.0.55
-schedule==1.2.2
-tweepy==4.14.0
