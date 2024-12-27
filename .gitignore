@@ -4,3 +4,4 @@ venv
 .zed
 .github/
 fly.toml
+.DS_Store
