@@ -7,10 +7,12 @@ import logging
 import hashlib
 
 from glob import iglob
+from typing import Optional
 
 import atproto
 import atproto.exceptions
 import schedule
+import typer
 
 def auth_client() -> atproto.Client:
     handle, password, = os.getenv('BLUESKY_USERNAME'), os.getenv('BLUESKY_PASSWORD')
@@ -26,7 +28,7 @@ def auth_client() -> atproto.Client:
     logging.info("Logged into profile `%s` successfully.", hashlib.sha256(handle.encode()).hexdigest())
     return client
 
-def sample_quote(client: atproto.Client, simulation_mode: bool = False) -> None:
+def sample_quote(client: Optional[atproto.Client], simulation_mode: bool = False) -> None:
     global quotes, indices
     path = quotes[indices.pop()]
 
@@ -34,7 +36,7 @@ def sample_quote(client: atproto.Client, simulation_mode: bool = False) -> None:
         post_text: str = f.read().strip()
 
     if simulation_mode:
-        print(post_text)
+        print(post_text, '\n')
         return
 
     try: 
@@ -43,20 +45,22 @@ def sample_quote(client: atproto.Client, simulation_mode: bool = False) -> None:
         logging.error("Error occurred when attempting to post `%s`: %s", path, e)
         raise
 
-def main() -> None:
+def main(simulation_mode: bool = True, log_level: str = "INFO") -> None:
     global quotes, indices
 
-    logging.getLogger().setLevel(os.getenv("LOGGING") or "INFO")
+    logging.getLogger().setLevel(os.getenv("LOGGING") or log_level)
 
-    client: atproto.Client = auth_client()
     quotes = tuple(iglob('src/**/*.txt', recursive=True))
     indices = []
 
     logging.debug("Initialized `quotes` tuple with the following values: %s", quotes)
 
-    schedule.every().hour.at(':00').do(sample_quote, client)
-    schedule.every().hour.at(':30').do(sample_quote, client)
-    # schedule.every(10).seconds.do(sample_quote, client, simulation_mode=True)
+    if simulation_mode:
+        schedule.every(10).seconds.do(sample_quote, None, simulation_mode=True)
+    else:
+        client: atproto.Client = auth_client()
+        schedule.every().hour.at(':00').do(sample_quote, client)
+        schedule.every().hour.at(':30').do(sample_quote, client)
 
     while True:
         if len(indices) == 0:
@@ -71,4 +75,4 @@ def main() -> None:
 
 if __name__ == '__main__':
     random.seed(time.monotonic())
-    main()
+    typer.run(main)
