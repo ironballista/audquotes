@@ -33,4 +33,4 @@ EXPOSE 8080
 
 # Reset the entrypoint, don't invoke `uv`
 ENTRYPOINT []
-CMD ["uv", "run", "schedule_script.py"]
+CMD ["uv", "run", "schedule_script.py", "--no-simulation-mode"]
