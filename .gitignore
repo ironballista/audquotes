@@ -6,3 +6,8 @@ venv/
 .github/
 fly.toml
 .DS_Store
+
+
+# Added by cargo
+
+/target
