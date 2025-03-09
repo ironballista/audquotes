@@ -1,6 +1,6 @@
+use bsky_sdk::BskyAgent;
 use bsky_sdk::api::app::bsky::feed::post;
 use bsky_sdk::api::types::string::Datetime;
-use bsky_sdk::BskyAgent;
 
 use glob::glob;
 use grep::{matcher::Matcher, regex, searcher::sinks};
@@ -11,7 +11,13 @@ use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tokio_cron_scheduler::{Job, JobScheduler, JobSchedulerError};
 
-use redis::{aio::{self, MultiplexedConnection}, AsyncCommands, Client};
+use redis::{
+    AsyncCommands, Client,
+    aio::{self, MultiplexedConnection},
+};
+
+const DEFAULT_QUEUE: &str = "queue:default";
+const EVENT_QUEUE: &str = "queue:event";
 
 fn prepare_post<I: Into<String>>(text: I) -> post::RecordData {
     post::RecordData {
@@ -62,7 +68,11 @@ fn read_files(filter: &QuoteFilter) -> Vec<String> {
     results
 }
 
-async fn reshuffle_quotes(filter: &QuoteFilter, mut con: impl redis::aio::ConnectionLike + AsyncCommands, output_queue: &str) -> Result<(), ()> {
+async fn reshuffle_quotes(
+    filter: &QuoteFilter,
+    mut con: impl redis::aio::ConnectionLike + AsyncCommands,
+    output_queue: &str,
+) -> Result<(), ()> {
     let len: u64 = con.llen(output_queue).await.unwrap();
     // NOTE: The following assumes the queue hasn't been repopulated by any other client
     //       in-between the call to llen and the execution of the pipeline.
@@ -77,7 +87,7 @@ async fn reshuffle_quotes(filter: &QuoteFilter, mut con: impl redis::aio::Connec
 
         let mut pipeline = redis::pipe();
         for file_contents in file_contents.into_iter() {
-            pipeline.lpush(output_queue,file_contents.as_str());
+            pipeline.lpush(output_queue, file_contents.as_str());
         }
         let _: () = pipeline.query_async(&mut con).await.unwrap();
     }
@@ -85,9 +95,25 @@ async fn reshuffle_quotes(filter: &QuoteFilter, mut con: impl redis::aio::Connec
     Ok(())
 }
 
+async fn get_quote(
+    filter: &QuoteFilter,
+    mut con: impl redis::aio::ConnectionLike + AsyncCommands + Clone,
+) -> Result<String, ()> {
+    // 1: Attempt to read from the event (priority) queue
+    let event_quote: Option<String> = con.lpop(EVENT_QUEUE, None).await.ok();
+    if let Some(quote) = event_quote {
+        return Ok(quote);
+    }
+
+    // 2: Otherwise, we read from the regular queue, repopulating it if it's empty
+    reshuffle_quotes(filter, con.clone(), DEFAULT_QUEUE).await?;
+    con.lpop(DEFAULT_QUEUE, None).await.map_err(|_| ())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let redis = redis::Client::open(std::env::var("REDIS_URL").unwrap_or("redis://localhost".to_string()))?;
+    let redis =
+        redis::Client::open(std::env::var("REDIS_URL").unwrap_or("redis://localhost".to_string()))?;
     let con = redis.get_multiplexed_async_connection().await?;
 
     let agent = BskyAgent::builder().build().await?;
@@ -100,27 +126,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let sched = JobScheduler::new().await?;
     let agent = Arc::new(Mutex::new(agent));
-    let filter = Arc::new(QuoteFilter {
+    let event_filter = Arc::new(QuoteFilter {
         content: r"\b(?i:mother|mommy|mama|mom)\b".to_string(),
         path: "quotes/**/*.txt".to_string(),
         dates: vec![],
     });
 
+    let regular_filter = Arc::new(QuoteFilter {
+        content: r".*".to_string(),
+        path: "test/**/*.txt".to_string(),
+        dates: vec![],
+    });
+
+    let (con_poster, con_event_monitor) = (con.clone(), con.clone());
+    let (agent_poster, agent_event_monitor) = (agent.clone(), agent.clone());
+
     // Add async job
     sched
         .add(Job::new_async("0/10,5/10 * * * * *", move |_uuid, _| {
-            let filter = filter.clone();
-            let mut con = con.clone();
-            let agent = agent.clone();
+            let filter = regular_filter.clone();
+            let con = con_poster.clone();
+            let agent = agent_poster.clone();
 
             Box::pin(async move {
-                let _ = reshuffle_quotes(&filter, con.clone(), "test:queue").await.unwrap();
-                let text: String = con.lpop("test:queue", None).await.unwrap();
+                let text: String = get_quote(&filter, con).await.unwrap();
                 let post = prepare_post(text.as_str());
                 let agent = agent.lock().await;
                 if let Err(_) = agent.create_record(post).await {
                     println!("{}\n", text)
                 }
+            })
+        })?)
+        .await?;
+
+    sched
+        .add(Job::new_async("32 * * * * *", move |_uuid, _| {
+            let filter = event_filter.clone();
+            let con = con_event_monitor.clone();
+            let _agent = agent_event_monitor.clone(); // Can be used later to e.g. update profile
+
+            Box::pin(async move {
+                // For testing purposes, let's always upload events
+                reshuffle_quotes(&filter, con.clone(), EVENT_QUEUE)
+                    .await
+                    .unwrap();
             })
         })?)
         .await?;
