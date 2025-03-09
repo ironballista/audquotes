@@ -20,7 +20,7 @@ const DEFAULT_QUEUE: &str = "queue:default";
 const EVENT_QUEUE: &str = "queue:event";
 
 // See https://cron.help for what these strings mean
-const POSTING_INTERVAL_CRON: &str = "00,30 * * * * * *"; 
+const POSTING_INTERVAL_CRON: &str = "0 0,30 * * * *"; 
 const EVENT_UPDATE_INTERVAL: &str = "55 23 * * *";
 
 fn prepare_post<I: Into<String>>(text: I) -> post::RecordData {
