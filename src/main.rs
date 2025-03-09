@@ -19,6 +19,10 @@ use redis::{
 const DEFAULT_QUEUE: &str = "queue:default";
 const EVENT_QUEUE: &str = "queue:event";
 
+// See https://cron.help for what these strings mean
+const POSTING_INTERVAL_CRON: &str = "00,30 * * * * * *"; 
+const EVENT_UPDATE_INTERVAL: &str = "55 23 * * *";
+
 fn prepare_post<I: Into<String>>(text: I) -> post::RecordData {
     post::RecordData {
         text: text.into(),
@@ -122,19 +126,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::env::var("BLUESKY_USERNAME").unwrap_or_default(),
             std::env::var("BLUESKY_PASSWORD").unwrap_or_default(),
         )
-        .await;
+        .await?;
 
     let sched = JobScheduler::new().await?;
     let agent = Arc::new(Mutex::new(agent));
-    let event_filter = Arc::new(QuoteFilter {
-        content: r"\b(?i:mother|mommy|mama|mom)\b".to_string(),
-        path: "quotes/**/*.txt".to_string(),
-        dates: vec![],
-    });
+    
+    /*
+        let event_filter = Arc::new(QuoteFilter {
+            content: r"\b(?i:mother|mommy|mama|mom)\b".to_string(),
+            path: "test/**/*.txt".to_string(),
+            dates: vec![],
+        });
+    */
 
     let regular_filter = Arc::new(QuoteFilter {
         content: r".*".to_string(),
-        path: "test/**/*.txt".to_string(),
+        path: "quotes/**/*.txt".to_string(),
         dates: vec![],
     });
 
@@ -143,7 +150,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add async job
     sched
-        .add(Job::new_async("0/10,5/10 * * * * *", move |_uuid, _| {
+        .add(Job::new_async(POSTING_INTERVAL_CRON, move |_uuid, _| {
             let filter = regular_filter.clone();
             let con = con_poster.clone();
             let agent = agent_poster.clone();
@@ -152,27 +159,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let text: String = get_quote(&filter, con).await.unwrap();
                 let post = prepare_post(text.as_str());
                 let agent = agent.lock().await;
-                if let Err(_) = agent.create_record(post).await {
-                    println!("{}\n", text)
+                if let Err(e) = agent.create_record(post).await {
+                    eprintln!("Could not post quote: {e}")
                 }
             })
         })?)
         .await?;
 
-    sched
-        .add(Job::new_async("32 * * * * *", move |_uuid, _| {
-            let filter = event_filter.clone();
-            let con = con_event_monitor.clone();
-            let _agent = agent_event_monitor.clone(); // Can be used later to e.g. update profile
+    // sched
+    //     .add(Job::new_async(EVENT_UPDATE_INTERVAL, move |_uuid, _| {
+    //         let filter = event_filter.clone();
+    //         let con = con_event_monitor.clone();
+    //         let _agent = agent_event_monitor.clone(); // Can be used later to e.g. update profile
 
-            Box::pin(async move {
-                // For testing purposes, let's always upload events
-                reshuffle_quotes(&filter, con.clone(), EVENT_QUEUE)
-                    .await
-                    .unwrap();
-            })
-        })?)
-        .await?;
+    //         Box::pin(async move {
+    //             // For testing purposes, let's always upload events
+    //             reshuffle_quotes(&filter, con.clone(), EVENT_QUEUE)
+    //                 .await
+    //                 .unwrap();
+    //         })
+    //     })?)
+    //     .await?;
 
     sched.start().await.unwrap();
     loop {
