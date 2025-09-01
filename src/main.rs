@@ -20,8 +20,11 @@ const DEFAULT_QUEUE: &str = "queue:default";
 const EVENT_QUEUE: &str = "queue:event";
 
 // See https://cron.help for what these strings mean
-const POSTING_INTERVAL_CRON: &str = "0 0,30 * * * *"; 
+const POSTING_INTERVAL_CRON: &str = "0 0,30 * * * *";
+const POSTING_INTERVAL_DEBUG: &str = "0,30 * * * * *";
 const EVENT_UPDATE_INTERVAL: &str = "55 23 * * *";
+
+const POSTING_RETRIES: i32 = 5;
 
 fn prepare_post<I: Into<String>>(text: I) -> post::RecordData {
     post::RecordData {
@@ -77,7 +80,7 @@ async fn reshuffle_quotes(
     mut con: impl redis::aio::ConnectionLike + AsyncCommands,
     output_queue: &str,
 ) -> Result<(), ()> {
-    let len: u64 = con.llen(output_queue).await.unwrap();
+    let len: u64 = con.llen(output_queue).await.map_err(|_| ())?;
     // NOTE: The following assumes the queue hasn't been repopulated by any other client
     //       in-between the call to llen and the execution of the pipeline.
     //       Hopefully won't be a problem :)
@@ -93,7 +96,7 @@ async fn reshuffle_quotes(
         for file_contents in file_contents.into_iter() {
             pipeline.lpush(output_queue, file_contents.as_str());
         }
-        let _: () = pipeline.query_async(&mut con).await.unwrap();
+        let _: () = pipeline.query_async(&mut con).await.map_err(|_| ())?;
     }
 
     Ok(())
@@ -120,47 +123,78 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         redis::Client::open(std::env::var("REDIS_URL").unwrap_or("redis://localhost".to_string()))?;
     let con = redis.get_multiplexed_async_connection().await?;
 
-    let agent = BskyAgent::builder().build().await?;
-    let _session = agent
-        .login(
-            std::env::var("BLUESKY_USERNAME").unwrap_or_default(),
-            std::env::var("BLUESKY_PASSWORD").unwrap_or_default(),
-        )
-        .await?;
+    let debug_mode = std::env::var("DEBUG").unwrap_or("0".to_string()) == "1";
+
+    let (agent, session) = if !debug_mode {
+        let agent = BskyAgent::builder().build().await?;
+        let session = agent
+            .login(
+                std::env::var("BLUESKY_USERNAME").unwrap_or_default(),
+                std::env::var("BLUESKY_PASSWORD").unwrap_or_default(),
+            )
+            .await?;
+
+        (Some(Arc::new(Mutex::new(agent))), Some(session))
+    } else {
+        (None, None) // Let's just simulate what the bot would post
+    };
 
     let sched = JobScheduler::new().await?;
-    let agent = Arc::new(Mutex::new(agent));
-    
+
     /*
-        let event_filter = Arc::new(QuoteFilter {
-            content: r"\b(?i:mother|mommy|mama|mom)\b".to_string(),
-            path: "test/**/*.txt".to_string(),
+    let event_filter = Arc::new(QuoteFilter {
+        content: r"\b(?i:mother|mommy|mama|mom)\b".to_string(),
+        path: "test/**/
+*.txt".to_string(),
             dates: vec![],
         });
     */
 
     let regular_filter = Arc::new(QuoteFilter {
         content: r".*".to_string(),
-        path: "quotes/**/*.txt".to_string(),
+        path: if !debug_mode { "quotes/**/*.txt".to_string() } else { "test/**/*.txt".to_string() },
         dates: vec![],
     });
 
     let (con_poster, con_event_monitor) = (con.clone(), con.clone());
     let (agent_poster, agent_event_monitor) = (agent.clone(), agent.clone());
 
+    let posting_interval = if !debug_mode {
+        POSTING_INTERVAL_CRON
+    } else {
+        POSTING_INTERVAL_DEBUG
+    };
+
     // Add async job
     sched
-        .add(Job::new_async(POSTING_INTERVAL_CRON, move |_uuid, _| {
+        .add(Job::new_async(posting_interval, move |_uuid, _| {
             let filter = regular_filter.clone();
             let con = con_poster.clone();
             let agent = agent_poster.clone();
+            let session = session.clone();
 
             Box::pin(async move {
                 let text: String = get_quote(&filter, con).await.unwrap();
-                let post = prepare_post(text.as_str());
-                let agent = agent.lock().await;
-                if let Err(e) = agent.create_record(post).await {
-                    eprintln!("Could not post quote: {e}")
+
+                if let (Some(agent), Some(session)) = (agent, session) {
+                    let post = prepare_post(text.as_str());
+                    let agent = agent.lock().await;
+
+                    for _ in 0..POSTING_RETRIES {
+                        if let Err(e) = agent.create_record(post.clone()).await {
+                            eprintln!("Could not post quote: `{e}`");
+                            eprintln!("Attempting to refresh login...");
+
+                            if let Err(e) = agent.resume_session(session.clone()).await {
+                                eprintln!("Failed to resume sessions due to following error: {e}")
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                } else {
+                    // Let's just print the quote!
+                    println!("{}\n", text);
                 }
             })
         })?)
