@@ -1,0 +1,14 @@
+[quotes]
+default = { path = "quotes/**/*.txt", content = ".*", dates = [] }
+
+[quotes.father]
+path = "quotes/**/*.txt"
+content = "\b(?i:father|dad|daddy|papa|pops)\b"
+dates = [
+  # whichever date is Father's day
+]
+
+[quotes.mother]
+path = "quotes/**/*.txt"
+content = "\b(?i:mother|mommy|mama|mom)\b"
+dates = []
