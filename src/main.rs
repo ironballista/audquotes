@@ -1,22 +1,16 @@
-use bsky_sdk::api::app;
 use bsky_sdk::api::app::bsky::feed::post;
 use bsky_sdk::api::types::string::Datetime;
 use bsky_sdk::{BskyAgent, api::types::Object};
 
 use glob::glob;
-use grep::{matcher::Matcher, regex, searcher::sinks};
-use rand::random_range;
+use grep::{regex, searcher::sinks};
 use rand::seq::SliceRandom;
 use redis::aio::ConnectionManagerConfig;
 
 use std::{sync::Arc, time::Duration};
-use tokio::sync::Mutex;
-use tokio_cron_scheduler::{Job, JobScheduler, JobSchedulerError};
+use tokio_cron_scheduler::{Job, JobScheduler};
 
-use redis::{
-    AsyncCommands, Client,
-    aio::{self, MultiplexedConnection},
-};
+use redis::AsyncCommands;
 
 const DEFAULT_QUEUE: &str = "queue:default";
 const EVENT_QUEUE: &str = "queue:event";
@@ -243,7 +237,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /*
     let event_filter = Arc::new(QuoteFilter {
         content: r"\b(?i:mother|mommy|mama|mom)\b".to_string(),
-        path: "test/**/*.txt".to_string(),
+        path: "test/**/
+*.txt".to_string(),
             dates: vec![],
         });
     */
