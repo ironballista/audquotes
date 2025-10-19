@@ -6,6 +6,7 @@ venv/
 .github/
 fly.toml
 .DS_Store
+.env
 assets/**
 
 # Added by cargo
